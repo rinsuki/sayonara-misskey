@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<title>sayonara-misskey</title>
+<meta name="description" content="Thank you and Good bye Misskey!"> 
+<meta charset="UTF-8">
+<script src="./vue.js"></script>
+<script src="./axios.min.js"></script>
+<div id="app">
+    <h1>sayonara-misskey</h1>
+    <h2>これは何</h2>
+    <p>このサイトではあなたのMisskeyアカウントのすべての投稿を削除することができます(ReNoteは除く)。自己責任でお使いください。</p>
+    <table>
+        <tr><th>Misskey Host Name</th><td><input type="text" v-model="hostName" :disabled="nowDeleting"></td></tr>
+        <tr><th>Your Token (Settings -> Token)</th><td><input type="password" v-model="token" :disabled="nowDeleting"></td></tr>
+    </table>
+    <hr>
+    <p>Please open console in your browser!</p>
+    <button @click="start" :disabled="nowDeleting">sayonara</button>
+    <hr>
+    <table>
+        <tr><th>Remaining Posts Count</th><td>{{ posts.length }}&nbsp;<span v-if="nowFetching">(now fetching...)</span></td></tr>
+        <tr><th>Deleted Posts Count</th><td>{{ deleteCount }}</td></tr>
+        <tr><th>Error Count</th><td>{{ errorCount }}</td></tr>
+    </table>
+</div>
+
+<script>
+    function sleep(msec) {
+        return new Promise(res => setTimeout(res, msec))
+    }
+    const app = new Vue({
+        el: "#app",
+        data: {
+            nowDeleting: false,
+            nowFetching: false,
+            hostName: "",
+            token: "",
+            posts: [],
+            errorCount: 0,
+            deleteCount: 0,
+        },
+        methods: {
+            async start() {
+                this.nowDeleting = true
+                this.nowFetching = true
+                const userId = (await this.callApi("i")).id
+                console.log(userId)
+                _ = (async () => {
+                    var untilId = undefined
+                    while (true) {
+                        const newPosts = await this.callApi("users/notes", {
+                            userId,
+                            limit: 100,
+                            untilId,
+                        })
+                        newPosts.filter(post => !post.deletedAt).forEach(post => this.posts.push(post))
+                        if (newPosts.length) {
+                            untilId = newPosts.slice(-1)[0].id
+                        } else {
+                            this.nowFetching = false
+                            break
+                        }
+                        await sleep(1000)
+                    }
+
+                })().catch(e => {
+                    alert("failed fetch your notes")
+                    console.error(e)
+                })
+                while (this.nowFetching || this.posts.length) {
+                    try {
+                        await sleep(1000)
+                        const post = this.posts.shift()
+                        if (!post) continue
+                        console.log(post.id)
+                        if (!post.deletedAt) await this.callApi("notes/delete", {
+                            noteId: post.id,
+                        })
+                        this.deleteCount = this.deleteCount + 1
+                    } catch (e) {
+                        console.error(e)
+                        this.errorCount = this.errorCount + 1
+                    }
+                }
+                this.nowDeleting = false
+            },
+            async callApi(endpoint, params = {}) {
+                return (await axios.post("https://"+this.hostName+"/api/"+endpoint, {
+                    ...params,
+                    i: this.token
+                })).data
+            }
+        }
+    })
+</script>
